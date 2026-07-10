@@ -1,0 +1,10 @@
+{
+  "default": {
+    "enabled": true,
+    "description": "Books the Friday 14 days out, closest available slot to 8:00 AM",
+    "targetDay": "Friday",
+    "preferredHour": 8,
+    "skipDates": []
+  },
+  "oneoffs": []
+}
