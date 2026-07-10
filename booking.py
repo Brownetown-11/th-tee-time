@@ -206,7 +206,61 @@ async def book_tee_time(page, task):
     else:
         raise RuntimeError(f"Timed out waiting for OPEN link for {dow} {day} {month} (20 min elapsed)")
 
-    await page.wait_for_load_state("domcontentloaded", timeout=15_000)
+    # Wait for the booking page to fully render after OPEN click
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10_000)
+    except Exception:
+        await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+
+    await asyncio.sleep(2)  # extra buffer for JS rendering
+
+    # Debug: log where we landed
+    current_url = page.url
+    page_text = await page.evaluate("document.body.innerText")
+    page_snippet = page_text[:200].strip()
+    print(f"  ℹ️  URL after OPEN: {current_url}")
+    print(f"  ℹ️  Page snippet: {page_snippet}")
+
+    # Detect "added to queue more than once" error — clear session and retry via login
+    if "QUEUE MORE THAN ONCE" in page_text.upper() or "ADDED YOURSELF TO THE QUEUE" in page_text.upper():
+        print("  ⚠️  Queue conflict detected — clearing session and retrying login …")
+        # Navigate away to reset the queue state, then re-login
+        await page.goto("https://www.terreyhillsgolf.com.au/security/logout.msp", wait_until="domcontentloaded", timeout=15_000)
+        await asyncio.sleep(3)
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+        await page.fill('input[name="user"]', TH_USERNAME)
+        await page.fill('input[type="password"]', TH_PASSWORD)
+        await page.click('input[type="submit"]')
+        await page.wait_for_load_state("domcontentloaded", timeout=15_000)
+        await page.goto(EVENTS_URL, wait_until="domcontentloaded", timeout=30_000)
+        await asyncio.sleep(2)
+
+        # Click OPEN again in the fresh session
+        clicked = await page.evaluate(f"""
+            const containers = [...document.querySelectorAll('div.left-content-container')];
+            for (const c of containers) {{
+                const span = (c.querySelector('span')?.textContent || '').trim();
+                if (span.includes('{dow}') && span.includes('{day}') && span.includes('{month}')) {{
+                    const link = c.querySelector('a');
+                    if (link && (link.textContent.trim() === 'OPEN' || link.textContent.trim() === 'ENTER')) {{
+                        link.click();
+                        return true;
+                    }}
+                }}
+            }}
+            return false;
+        """)
+        if not clicked:
+            raise RuntimeError(f"Queue conflict — could not re-enter booking page for {dow} {day} {month}")
+        await asyncio.sleep(3)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10_000)
+        except Exception:
+            pass
+
+        current_url = page.url
+        page_text = await page.evaluate("document.body.innerText")
+        print(f"  ✓ Re-entered after queue conflict — URL: {current_url}")
 
     # ── Step 4: Find and click best BOOK GROUP slot ────────────────────────
     print("  → Selecting slot …")
