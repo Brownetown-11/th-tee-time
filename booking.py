@@ -158,9 +158,17 @@ async def book_tee_time(page, task):
 
     # Poll every 2 seconds for up to 20 minutes
     for attempt in range(600):
-        open_clicked = await page.evaluate("window._openClicked")
+        try:
+            open_clicked = await page.evaluate("window._openClicked")
+        except Exception:
+            # Execution context destroyed = page navigated away (OPEN was clicked)
+            open_clicked = "eventList" not in page.url
+
         if open_clicked or "eventList" not in page.url:
-            clicked_at = await page.evaluate("window._clickedAt || 'now'")
+            try:
+                clicked_at = await page.evaluate("window._clickedAt || 'now'")
+            except Exception:
+                clicked_at = datetime.now(SYDNEY).strftime("%H:%M:%S")
             print(f"  ✓ OPEN link clicked at {clicked_at}")
             break
 
@@ -208,7 +216,7 @@ async def book_tee_time(page, task):
         window._PREF = {pref};
 
         const allBtns  = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'BOOK GROUP');
-        const timeRx   = /(\d{{1,2}}):(\d{{2}})\s*(AM|PM)/g;
+        const timeRx   = /(\\d{{1,2}}):(\\d{{2}})\\s*(AM|PM)/g;
         const allTimes = [...document.body.innerText.matchAll(timeRx)].map(m => ({{
             hour: parseInt(m[1]) + (m[3]==='PM' && m[1]!=='12' ? 12 : 0),
             str: m[0].trim()
