@@ -1,0 +1,50 @@
+name: Terrey Hills Tee Booking
+
+on:
+  schedule:
+    # 07:10 UTC daily
+    # = 6:10 PM AEDT (UTC+11, Oct–Apr)  ← booking script sleeps until 6:10 PM Sydney
+    # = 5:10 PM AEST (UTC+10, May–Oct)  ← script sleeps the extra hour automatically
+    # The Python script handles AEST/AEDT via Australia/Sydney timezone — no manual cron adjustment needed.
+    - cron: '10 7 * * *'
+
+  # Also allows manual triggering from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  book-tee-time:
+    name: Book tee time
+    runs-on: ubuntu-latest
+    timeout-minutes: 45   # enough for the 6:10→6:30 wait + booking
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run booking script
+        env:
+          TH_USERNAME: ${{ secrets.TH_USERNAME }}
+          TH_PASSWORD: ${{ secrets.TH_PASSWORD }}
+        run: python booking.py
+
+      - name: Commit updated bookings.json
+        # Runs even if booking failed, so status is always persisted
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bookings.json
+          # Only commit if something changed
+          git diff --staged --quiet || git commit -m "chore: update booking status [skip ci]"
+          git push
